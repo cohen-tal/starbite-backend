@@ -2,7 +2,12 @@ import express, { Request, Response } from "express";
 import { Pool } from "pg";
 import multer from "multer";
 import cors from "cors";
-import { authenticateToken, generateToken } from "./middleware/auth";
+import {
+  authenticateToken,
+  generateToken,
+  refreshAccessToken,
+} from "./middleware/auth";
+import { Token } from "./types";
 
 const DB = "postgresql://postgres:@localhost:5432/StarBite";
 
@@ -48,12 +53,21 @@ app.post("/api/v1/users", async (req: Request, res: Response) => {
   }
 });
 
-app.get(
-  "/api/v1/auth/accesstoken",
-  authenticateToken,
+app.post(
+  "/api/v1/auth/access_token",
+  refreshAccessToken,
   (req: Request, res: Response) => {
     const id = req.body.userId;
-    console.log(id);
+
+    const { jwt, expiresAt } = generateToken("access", id);
+
+    const accessToken: Token = {
+      token: jwt,
+      type: "access_token",
+      expiresAt: expiresAt,
+    };
+
+    return res.status(200).json(accessToken);
   }
 );
 
@@ -62,7 +76,7 @@ app.get("/newtoken", (req: Request, res: Response) => {
   return res.json(generateToken("access", user));
 });
 
-app.get("/testz", (req, res) => {
+app.post("/testz", (req, res) => {
   console.log("reached testz");
   console.log(req.headers);
   return res.status(200);
