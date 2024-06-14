@@ -1,6 +1,5 @@
 import { NextFunction, Request, RequestHandler, Response } from "express";
 import jwt from "jsonwebtoken";
-import { Token } from "../types";
 
 export function authenticateToken(
   req: Request,
@@ -41,12 +40,23 @@ export function refreshAccessToken(
 export function generateToken(
   type: "access" | "refresh",
   payload: string | object
-) {
+): { jwt: string; expiresAt: number } {
+  let expiresAt: number;
+
   const secret =
     type === "access"
       ? process.env.ACCESS_TOKEN_SECRET_KEY!
       : process.env.REFRESH_TOKEN_SECRET_KEY!;
   console.log(process.env.ACCESS_TOKEN_SECRET_KEY);
 
-  return jwt.sign(payload, secret, { expiresIn: "15m" });
+  if (type === "access") {
+    expiresAt = Math.floor(Date.now() / 1000 + 30 * 60); // access token - expires in 30m
+  } else {
+    expiresAt = Math.floor(Date.now() / 1000 + 7 * 24 * 60 * 60); // refresh token - expires in 7d
+  }
+
+  return {
+    jwt: jwt.sign(payload, secret, { expiresIn: "30m" }),
+    expiresAt: expiresAt,
+  };
 }
