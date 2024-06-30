@@ -3,9 +3,9 @@ import { Pool } from "pg";
 import multer from "multer";
 import cors from "cors";
 import {
-  authenticateToken,
+  authAccessToken,
   generateToken,
-  refreshAccessToken,
+  authRefreshToken,
 } from "./middleware/auth";
 import { Token } from "./types";
 
@@ -30,7 +30,6 @@ app.post("/api/v1/users", async (req: Request, res: Response) => {
   console.log(name, email, image);
 
   try {
-    // Check if the user already exists
     const existingUser = await pool.query(
       "SELECT id FROM users WHERE email = $1",
       [email]
@@ -53,9 +52,35 @@ app.post("/api/v1/users", async (req: Request, res: Response) => {
   }
 });
 
+app.post("/api/v1/auth/login", async (req, res) => {
+  const userId = req.body.id;
+
+  const { jwt, expiresAt } = generateToken("access", userId);
+  const { jwt: refresh_jwt, expiresAt: refresh_expires } = generateToken(
+    "refresh",
+    userId
+  );
+
+  const accessToken: Token = {
+    token: jwt,
+    type: "access_token",
+    expiresAt: expiresAt,
+  };
+
+  const refreshToken: Token = {
+    token: refresh_jwt,
+    type: "refresh_token",
+    expiresAt: refresh_expires,
+  };
+
+  return res
+    .status(200)
+    .json({ accessToken: accessToken, refreshToken: refreshToken });
+});
+
 app.post(
-  "/api/v1/auth/access_token",
-  refreshAccessToken,
+  "/api/v1/auth/token",
+  authRefreshToken,
   (req: Request, res: Response) => {
     const id = req.body.userId;
 
@@ -71,16 +96,7 @@ app.post(
   }
 );
 
-app.get("/newtoken", (req: Request, res: Response) => {
-  const user = { id: "123123" };
-  return res.json(generateToken("access", user));
-});
-
-app.post("/testz", (req, res) => {
-  console.log("reached testz");
-  console.log(req.headers);
-  return res.status(200);
-});
+app.use(authAccessToken);
 
 app.post(
   "/api/v1/restaurants",
@@ -121,6 +137,8 @@ app.post(
     }
   }
 );
+
+app.post("/api/v1/reviews", (req: Request, res: Response) => {});
 
 app.listen(port, () => {
   console.log(`Server is running on port ${port}`);
