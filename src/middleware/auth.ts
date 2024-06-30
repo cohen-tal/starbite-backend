@@ -1,7 +1,8 @@
 import { NextFunction, Request, RequestHandler, Response } from "express";
-import jwt from "jsonwebtoken";
+import jwt, { JwtPayload } from "jsonwebtoken";
+import { Token } from "../types";
 
-export function authenticateToken(
+export function authAccessToken(
   req: Request,
   res: Response,
   next: NextFunction
@@ -19,22 +20,34 @@ export function authenticateToken(
   });
 }
 
-export function refreshAccessToken(
+export function authRefreshToken(
   req: Request,
   res: Response,
   next: NextFunction
 ) {
-  const refreshToken = req.headers.authorization?.split(" ")[1];
+  const refreshToken: Token = req.body.refreshToken;
 
   if (!refreshToken) {
     return res.sendStatus(401);
   }
 
-  jwt.verify(refreshToken, process.env.REFRESH_TOKEN_SECRET_KEY!, (err, id) => {
-    if (err) return res.sendStatus(403);
-    req.body.userId = id;
-    next();
-  });
+  jwt.verify(
+    refreshToken.token,
+    process.env.REFRESH_TOKEN_SECRET_KEY!,
+    (err, payload) => {
+      if (err) {
+        console.error(err);
+        return res.status(403).json({ error: "refresh token expired." });
+      }
+      if (assertPayload(payload)) {
+        console.log("in assert");
+        req.body.userId = payload["userId"];
+        return next();
+      }
+      // Handle cases where payload does not match expected structure
+      return res.status(400).json({ error: "Invalid token payload." });
+    }
+  );
 }
 
 export function generateToken(
@@ -42,21 +55,24 @@ export function generateToken(
   payload: string | object
 ): { jwt: string; expiresAt: number } {
   let expiresAt: number;
-
-  const secret =
-    type === "access"
-      ? process.env.ACCESS_TOKEN_SECRET_KEY!
-      : process.env.REFRESH_TOKEN_SECRET_KEY!;
-  console.log(process.env.ACCESS_TOKEN_SECRET_KEY);
+  let secret: string;
 
   if (type === "access") {
+    secret = process.env.ACCESS_TOKEN_SECRET_KEY!;
     expiresAt = Math.floor(Date.now() / 1000 + 30 * 60); // access token - expires in 30m
   } else {
+    secret = process.env.REFRESH_TOKEN_SECRET_KEY!;
     expiresAt = Math.floor(Date.now() / 1000 + 7 * 24 * 60 * 60); // refresh token - expires in 7d
   }
 
   return {
-    jwt: jwt.sign(payload, secret, { expiresIn: "30m" }),
+    jwt: jwt.sign({ userId: payload }, secret, {
+      expiresIn: type === "access" ? "30m" : "7d",
+    }),
     expiresAt: expiresAt,
   };
+}
+
+function assertPayload(payload: any): payload is JwtPayload {
+  return "userId" in payload && typeof payload.userId === "string";
 }
