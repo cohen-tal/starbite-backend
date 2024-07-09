@@ -10,7 +10,9 @@ export function authAccessToken(
   const token = req.headers.authorization?.split(" ")[1];
 
   if (!token) {
-    return res.sendStatus(401);
+    return res
+      .status(401)
+      .json({ error: "No valid access token sent in request headers." });
   }
 
   jwt.verify(token, process.env.ACCESS_TOKEN_SECRET_KEY!, (err, id) => {
@@ -40,7 +42,6 @@ export function authRefreshToken(
         return res.status(403).json({ error: "refresh token expired." });
       }
       if (assertPayload(payload)) {
-        console.log("in assert");
         req.body.userId = payload["userId"];
         return next();
       }
