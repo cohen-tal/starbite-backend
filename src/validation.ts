@@ -8,6 +8,21 @@ const ACCEPTED_IMAGE_TYPES = [
   "image/webp",
 ];
 
+export const UserDBSchema = z.object({
+  name: z
+    .string()
+    .min(2, "Must be a minimum length of 2.")
+    .max(100, "Max length is 100 characters."),
+  email: z
+    .string()
+    .min(7, "Must be a minimum length of 7.")
+    .max(100, "Max length is 100 characters."),
+  image: z
+    .string()
+    .min(10, "Must be a minimum length of 10.")
+    .max(100, "Max length is 100 characters."),
+});
+
 // Define a schema for a single file
 const ImageFileSchema = z
   .instanceof(File)
@@ -20,7 +35,7 @@ const ImageFileSchema = z
     }MB.`,
   });
 
-export const RestaurantSchema = z.object({
+export const RestaurantDBSchema = z.object({
   name: z
     .string()
     .min(2, "Must be a minimum length of 2.")
@@ -35,7 +50,7 @@ export const RestaurantSchema = z.object({
   images: z.array(ImageFileSchema).optional(),
 });
 
-export const ReviewSchema = z.object({
+export const ReviewDBSchema = z.object({
   review: z.string().max(255, "Max length is 255 characters.").optional(),
   rating: z
     .number()
