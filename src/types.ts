@@ -5,3 +5,27 @@ export interface Token {
   issuer?: string;
   subject?: string;
 }
+
+export interface UserAPI {
+  id: string;
+  email: string;
+  image: string;
+}
+
+export interface RestaurantAPI {
+  id?: string;
+  name: string;
+  address: string;
+  lat: number;
+  lng: number;
+  addedBy: string;
+  dateAdded?: Date;
+  dateEdited?: Date;
+}
+
+export interface ReviewAPI {
+  id: string;
+  text: string;
+  rating: number;
+  addedBy: UserAPI;
+}
