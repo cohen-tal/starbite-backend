@@ -19,6 +19,7 @@ export interface RestaurantAPI {
   lat: number;
   lng: number;
   addedBy: string;
+  images: string[];
   dateAdded?: Date;
   dateEdited?: Date;
 }
