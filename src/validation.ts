@@ -45,8 +45,8 @@ export const RestaurantDBSchema = z.object({
     .string()
     .min(2, "Min length is 2 characters.")
     .max(255, "Max length is 255 characters."),
-  lat: z.number(),
-  lng: z.number(),
+  lat: z.string().transform(Number),
+  lng: z.string().transform(Number),
   images: z.array(ImageFileSchema).optional(),
 });
 
