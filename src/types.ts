@@ -20,6 +20,7 @@ export interface RestaurantAPI {
   lng: number;
   addedBy: string;
   images: string[];
+  reviews?: ReviewAPI[];
   dateAdded?: Date;
   dateEdited?: Date;
 }
