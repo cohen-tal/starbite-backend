@@ -3,11 +3,16 @@ import { Pool } from "pg";
 import multer from "multer";
 import cors from "cors";
 import {
-  authAccessToken,
+  authenticateAccessToken,
   generateToken,
-  authRefreshToken,
+  authenticateRefreshToken,
 } from "./middleware/auth";
-import { Token } from "./types";
+import { RestaurantAPI, Token, UserAPI } from "./types";
+import { uploadImageToCloudinary } from "./utils";
+import z from "zod";
+import { UserDBSchema, RestaurantDBSchema, ReviewDBSchema } from "./validation";
+import { RequestWithId } from "./middleware/auth";
+import { parseRestaurant } from "./parser";
 
 const DB = "postgresql://postgres:@localhost:5432/StarBite";
 
@@ -16,7 +21,7 @@ const port = 8080;
 
 app.use(cors(), express.json(), express.urlencoded({ extended: true }));
 
-const upload = multer({ storage: multer.memoryStorage() });
+const upload = multer();
 
 const pool = new Pool({ connectionString: DB });
 
@@ -26,23 +31,25 @@ pool
   .catch((err) => console.error("Error connecting to the database", err));
 
 app.post("/api/v1/users", async (req: Request, res: Response) => {
-  const { name, email, image } = req.body;
-  console.log(name, email, image);
-
   try {
-    const existingUser = await pool.query(
-      "SELECT id FROM users WHERE email = $1",
-      [email]
+    const user: z.infer<typeof UserDBSchema> = UserDBSchema.parse(req.body);
+    console.log(user);
+
+    const { rows: existingUser } = await pool.query<UserAPI>(
+      "SELECT id, name, email, image FROM users WHERE email = $1",
+      [user.email]
     );
 
-    if (existingUser.rows.length > 0) {
-      res.status(200).json(existingUser.rows[0]);
+    if (existingUser.length > 0) {
+      res.status(200).json(existingUser[0]);
     } else {
-      const result = await pool.query(
-        "INSERT INTO users(name, email, image) VALUES($1, $2, $3) RETURNING id",
-        [name, email, image]
+      const { rows } = await pool.query<UserAPI>(
+        "INSERT INTO users(name, email, image) VALUES($1, $2, $3) RETURNING id, name, email, image",
+        [user.name, user.email, user.image]
       );
-      res.status(200).json(result.rows[0]);
+      const newUser: UserAPI = rows[0];
+
+      res.status(200).json(newUser);
     }
   } catch (err) {
     console.log(err);
@@ -80,7 +87,7 @@ app.post("/api/v1/auth/login", async (req, res) => {
 
 app.post(
   "/api/v1/auth/token",
-  authRefreshToken,
+  authenticateRefreshToken,
   (req: Request, res: Response) => {
     const id = req.body.userId;
 
@@ -96,49 +103,123 @@ app.post(
   }
 );
 
-app.use(authAccessToken);
+app.use(authenticateAccessToken);
 
+// Restaurants API endpoints
 app.post(
   "/api/v1/restaurants",
   upload.array("images", 5),
-  async (req: Request, res: Response) => {
+  async (req: RequestWithId, res: Response) => {
+    let urls: string[] = [];
     try {
-      const { name, description, address, lat, lng } = req.body;
-      const files = req.files as Express.Multer.File[];
+      const newRestaurant = RestaurantDBSchema.parse(req.body);
+      console.log(req.userId);
 
-      // Save restaurant data to the database
-      const query = `
-        INSERT INTO restaurants (name, description, address, lat, lng)
-        VALUES ($1, $2, $3, $4, $5)
-        RETURNING id
-      `;
-      const values = [name, description, address, lat, lng];
-      const result = await pool.query(query, values);
+      if (req.files) {
+        const promises = uploadImageToCloudinary(
+          req.files as Express.Multer.File[]
+        );
 
-      const restaurantId = result.rows[0].id;
-
-      // Handle image uploads
-      if (files && files.length > 0) {
-        const imageQueries = files.map((file) => {
-          const imageQuery = `
-            INSERT INTO restaurant_images (restaurant_id, image_data)
-            VALUES ($1, $2)
-          `;
-          return pool.query(imageQuery, [restaurantId, file.buffer]);
-        });
-
-        await Promise.all(imageQueries);
+        urls = await Promise.all(promises);
       }
 
-      res.json({ message: "Restaurant added successfully!", restaurantId });
-    } catch (error) {
-      console.error("Error adding restaurant:", error);
-      res.status(500).json({ error: "Internal server error" });
+      const { rows } = await pool.query<{ id: string }>(
+        "INSERT INTO restaurants(name, address, latitude, longitude, categories , added_by) values($1, $2, $3, $4, $5, $6) RETURNING id",
+        [
+          newRestaurant.name,
+          newRestaurant.address,
+          newRestaurant.lat,
+          newRestaurant.lng,
+          newRestaurant.categories,
+          req.userId,
+        ]
+      );
+
+      const restaurantId = rows[0].id;
+
+      const urlsAdded = urls.map(
+        async (url) =>
+          await pool.query<{ url: string }>(
+            "INSERT INTO images_restaurants(restaurant_id, url) VALUES($1, $2) RETURNING url",
+            [restaurantId, url]
+          )
+      );
+
+      const addedUrls = await Promise.all(urlsAdded);
+
+      // const restaurant: RestaurantAPI = {
+      //   id: restaurantId,
+      //   name: newRestaurant.name,
+      //   addedBy: req.userId!,
+      //   address: newRestaurant.address,
+      //   lat: newRestaurant.lat,
+      //   lng: newRestaurant.lng,
+      //   images: addedUrls.map((res) => res.rows[0].url),
+      // };
+      res.status(200).json({ id: restaurantId });
+    } catch (err) {
+      console.log(err);
+      res.status(400);
     }
   }
 );
 
-app.post("/api/v1/reviews", (req: Request, res: Response) => {});
+app.get(
+  "/api/v1/restaurants/:restaurantId",
+  async (req: Request, res: Response) => {
+    const restaurantId = req.params.restaurantId;
+
+    const { rows } = await pool.query<RestaurantAPI>(
+      `SELECT 
+          r.name, 
+          r.latitude, 
+          r.longitude, 
+          r.date_added, 
+          r.edited_at, 
+          r.added_by, 
+          r.address, 
+          json_agg(json_build_object(
+              'id', reviews.id, 
+              'text', reviews.text, 
+              'rating', reviews.rating,
+              'added_by', reviews.added_by
+          )) AS reviews
+      FROM 
+          restaurants AS r
+      JOIN 
+          reviews ON r.id = reviews.restaurant_id
+      WHERE 
+          r.id = $1
+      GROUP BY 
+          r.id;
+      `,
+      [restaurantId]
+    );
+
+    console.log(rows[0]);
+
+    const rest = parseRestaurant(rows[0]);
+    console.log(rest);
+  }
+);
+
+app.post(
+  "/api/v1/reviews",
+  upload.array("images", 5),
+  async (req: RequestWithId, res: Response) => {
+    const newReview = ReviewDBSchema.parse(req.body);
+
+    try {
+      const { rows } = await pool.query(
+        "INSERT INTO reviews(rating, text, restaurant_id, added_by) VALUES($1, $2, $3, $4) RETURNING id",
+        [newReview.rating, newReview.review, newReview.restaurantId, req.userId]
+      );
+      res.status(200).json({ id: rows[0].id });
+    } catch (err) {
+      console.log(err);
+    }
+  }
+);
 
 app.listen(port, () => {
   console.log(`Server is running on port ${port}`);

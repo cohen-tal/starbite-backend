@@ -48,13 +48,17 @@ export const RestaurantDBSchema = z.object({
   lat: z.string().transform(Number),
   lng: z.string().transform(Number),
   images: z.array(ImageFileSchema).optional(),
+  categories: z.array(z.string()).min(1).max(5),
 });
 
 export const ReviewDBSchema = z.object({
+  restaurantId: z.string(),
   review: z.string().max(255, "Max length is 255 characters.").optional(),
   rating: z
-    .number()
-    .min(0.5, "Minimun star rating is 0.5 stars.")
-    .max(5, "Maximum star rating is 5 stars."),
+    .string()
+    .transform(Number)
+    .refine((val) => !isNaN(val) && val >= 0.5 && val <= 5, {
+      message: "Rating must be a valid number between 0.5 and 5.",
+    }),
   images: z.array(ImageFileSchema).optional(),
 });
