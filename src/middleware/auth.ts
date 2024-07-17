@@ -2,7 +2,11 @@ import { NextFunction, Request, RequestHandler, Response } from "express";
 import jwt, { JwtPayload } from "jsonwebtoken";
 import { Token } from "../types";
 
-export function authAccessToken(
+export interface RequestWithId extends Request {
+  userId?: string;
+}
+
+export function authenticateAccessToken(
   req: Request,
   res: Response,
   next: NextFunction
@@ -15,14 +19,22 @@ export function authAccessToken(
       .json({ error: "No valid access token sent in request headers." });
   }
 
-  jwt.verify(token, process.env.ACCESS_TOKEN_SECRET_KEY!, (err, id) => {
-    if (err) return res.sendStatus(403);
-    req.body.userId = id;
-    next();
-  });
+  jwt.verify(
+    token,
+    process.env.ACCESS_TOKEN_SECRET_KEY!,
+    { complete: false },
+    (err, payload) => {
+      if (err) return res.sendStatus(403);
+
+      if (assertPayload(payload)) {
+        (req as RequestWithId).userId = payload["userId"];
+      }
+      next();
+    }
+  );
 }
 
-export function authRefreshToken(
+export function authenticateRefreshToken(
   req: Request,
   res: Response,
   next: NextFunction
