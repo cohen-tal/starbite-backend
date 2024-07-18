@@ -6,6 +6,7 @@ export function parseToRestaurantAPI(from: RestaurantDB): RestaurantAPI {
     name: from.name,
     lat: from.latitude,
     lng: from.longitude,
+    rating: Number(from.rating),
     addedBy: from.added_by,
     address: from.address,
     images: from.images ?? [],
@@ -25,8 +26,8 @@ export function parseToReviewAPI(from: ReviewsDB): ReviewAPI {
     text: from.text,
     rating: from.rating,
     author: from.author,
-    dateAdded: from.date_added,
-    dateEdited: from.edited_at,
+    dateAdded: new Date(from.date_added),
+    dateEdited: from.edited_at ? new Date(from.edited_at) : null,
   };
 
   return review;
