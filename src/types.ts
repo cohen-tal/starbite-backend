@@ -20,6 +20,7 @@ export interface RestaurantDB {
   name: string;
   latitude: number;
   longitude: number;
+  rating: string;
   date_added: Date;
   edited_at: Date | null;
   added_by: UserDB;
@@ -50,6 +51,7 @@ export interface RestaurantAPI {
   address: string;
   lat: number;
   lng: number;
+  rating: number;
   addedBy: UserDB;
   images: string[];
   reviews: ReviewAPI[];
