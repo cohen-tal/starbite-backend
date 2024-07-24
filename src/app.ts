@@ -7,12 +7,18 @@ import {
   generateToken,
   authenticateRefreshToken,
 } from "./middleware/auth";
-import { RestaurantAPI, Token, UserAPI } from "./types";
+import {
+  RestaurantAPI,
+  RestaurantDB,
+  RestaurantPreviewCardAPI,
+  Token,
+  UserAPI,
+} from "./types";
 import { uploadImageToCloudinary } from "./utils";
 import z from "zod";
 import { UserDBSchema, RestaurantDBSchema, ReviewDBSchema } from "./validation";
 import { RequestWithId } from "./middleware/auth";
-import { parseRestaurant } from "./parser";
+import { parseToRestaurantAPI } from "./parser";
 
 const DB = "postgresql://postgres:@localhost:5432/StarBite";
 
@@ -29,6 +35,32 @@ pool
   .connect()
   .then(() => console.log("Connected to the database"))
   .catch((err) => console.error("Error connecting to the database", err));
+
+app.get("/api/v1/home", async (req: Request, res: Response) => {
+  const recentReviews = await pool.query(
+    `SELECT reviews.id, reviews.text, reviews.rating, users.name, users.image
+     FROM reviews
+     JOIN users ON reviews.added_by = users.id
+     ORDER BY reviews.date_added DESC
+     LIMIT 5`
+  );
+
+  const recentRestaurants = await pool.query(
+    `SELECT r.id, r.name, r.address, r.categories, json_agg(images.url) AS images
+     FROM restaurants AS r
+     JOIN images_restaurants AS images ON r.id = images.restaurant_id
+     GROUP BY r.id  
+     ORDER BY r.date_added DESC
+     LIMIT 5`
+  );
+
+  console.dir(recentRestaurants.rows);
+
+  res.json({
+    reviews: recentReviews.rows,
+    restaurants: recentRestaurants.rows,
+  });
+});
 
 app.post("/api/v1/users", async (req: Request, res: Response) => {
   try {
@@ -103,6 +135,34 @@ app.post(
   }
 );
 
+app.get("/api/v1/restaurants", async (req: Request, res: Response) => {
+  const radius = req.query.radius ?? 2000; // default value of 2km radius near user location
+  const userLocation = req.query.loc;
+
+  try {
+    if (!Array.isArray(userLocation) || !userLocation) {
+      throw new Error("Invalid user location coordinates!");
+    }
+
+    const resultSet = await pool.query<RestaurantPreviewCardAPI>(
+      `
+        SELECT r.id, r.name, ROUND(AVG(reviews.rating), 2) AS rating, r.address, r.categories, json_agg(images.url) AS images
+        FROM restaurants AS r
+        JOIN images_restaurants AS images ON r.id = images.restaurant_id
+        LEFT JOIN reviews ON r.id = reviews.restaurant_id
+        WHERE ST_DWithin(r.location, ST_SetSRID(ST_MakePoint($1, $2), 4326), $3)
+        GROUP BY r.id;
+        `,
+      [userLocation[1], userLocation[0], radius]
+    );
+
+    res.json(resultSet.rows);
+  } catch (err) {
+    console.error(err);
+    res.status(400).json({ message: err });
+  }
+});
+
 app.use(authenticateAccessToken);
 
 // Restaurants API endpoints
@@ -147,15 +207,6 @@ app.post(
 
       const addedUrls = await Promise.all(urlsAdded);
 
-      // const restaurant: RestaurantAPI = {
-      //   id: restaurantId,
-      //   name: newRestaurant.name,
-      //   addedBy: req.userId!,
-      //   address: newRestaurant.address,
-      //   lat: newRestaurant.lat,
-      //   lng: newRestaurant.lng,
-      //   images: addedUrls.map((res) => res.rows[0].url),
-      // };
       res.status(200).json({ id: restaurantId });
     } catch (err) {
       console.log(err);
@@ -168,38 +219,68 @@ app.get(
   "/api/v1/restaurants/:restaurantId",
   async (req: Request, res: Response) => {
     const restaurantId = req.params.restaurantId;
+    console.log(restaurantId);
 
-    const { rows } = await pool.query<RestaurantAPI>(
-      `SELECT 
-          r.name, 
-          r.latitude, 
-          r.longitude, 
-          r.date_added, 
-          r.edited_at, 
-          r.added_by, 
-          r.address, 
-          json_agg(json_build_object(
-              'id', reviews.id, 
-              'text', reviews.text, 
-              'rating', reviews.rating,
-              'added_by', reviews.added_by
-          )) AS reviews
-      FROM 
-          restaurants AS r
-      JOIN 
-          reviews ON r.id = reviews.restaurant_id
-      WHERE 
-          r.id = $1
-      GROUP BY 
-          r.id;
-      `,
-      [restaurantId]
-    );
+    try {
+      const { rows } = await pool.query<RestaurantDB>(
+        `SELECT 
+            r.id,
+            r.name, 
+            r.latitude, 
+            r.longitude, 
+            r.date_added, 
+            r.edited_at, 
+            r.added_by, 
+            r.address,
+            r.categories,
+            ROUND(AVG(CASE WHEN reviews.rating IS NOT NULL THEN reviews.rating ELSE 0 END), 2) AS rating,
+            json_agg(images_restaurants.url) AS images,
+            COALESCE(
+                json_agg(
+                    CASE 
+                        WHEN reviews.id IS NOT NULL THEN 
+                        json_build_object(
+                            'id', reviews.id, 
+                            'text', reviews.text, 
+                            'rating', reviews.rating,
+                            'likes', reviews.likes,
+                            'dislikes', reviews.dislikes,
+                            'date_added', reviews.date_added,
+                            'edited_at', reviews.edited_at,
+                            'added_by', reviews.added_by,
+                            'author', json_build_object(
+                                'id', users.id, 
+                                'name', users.name, 
+                                'email', users.email,
+                                'image', users.image
+                            ),
+                            'images', json_build_object('url', images_reviews.url)
+                        ) 
+                        ELSE NULL 
+                    END
+                ) FILTER (WHERE reviews.id IS NOT NULL), '[]') AS reviews
+        FROM restaurants AS r
+        LEFT JOIN reviews ON r.id = reviews.restaurant_id
+        LEFT JOIN users ON reviews.added_by = users.id
+        LEFT JOIN images_restaurants ON r.id = images_restaurants.restaurant_id
+        LEFT JOIN images_reviews ON reviews.id = images_reviews.review_id
+        WHERE r.id = $1
+        GROUP BY r.id;
+        `,
+        [restaurantId]
+      );
 
-    console.log(rows[0]);
+      const result: RestaurantDB = rows[0];
 
-    const rest = parseRestaurant(rows[0]);
-    console.log(rest);
+      res.status(200).json(parseToRestaurantAPI(result));
+    } catch (err) {
+      console.log(err);
+
+      res.status(400).json({
+        message:
+          "Failed retreiving restaurant from data. Please try again later.",
+      });
+    }
   }
 );
 
