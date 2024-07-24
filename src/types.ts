@@ -13,6 +13,7 @@ export interface UserDB {
   name: string;
   email: string;
   image: string;
+  dateAdded: string | Date;
 }
 
 export interface RestaurantDB {
@@ -30,13 +31,21 @@ export interface RestaurantDB {
   images?: string[];
 }
 
+export interface RestaurantPreviewCardAPI
+  extends Omit<
+    RestaurantDB,
+    "latitude" | "longitude" | "edited_at" | "reviews" | "added_by"
+  > {}
+
 export interface ReviewsDB {
   id: string;
   text: string;
   rating: number;
   author: UserDB;
-  date_added: Date;
-  edited_at: Date | null;
+  likes?: number;
+  dislikes?: number;
+  date_added: Date | string;
+  edited_at: Date | string | null;
   restaurant_id: string;
   images?: string[];
 }
@@ -64,6 +73,8 @@ export interface ReviewAPI {
   id: string;
   text: string;
   rating: number;
+  likes?: number;
+  dislikes?: number;
   author: UserAPI;
   dateAdded: Date;
   dateEdited: Date | null;
