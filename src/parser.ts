@@ -26,6 +26,8 @@ export function parseToReviewAPI(from: ReviewsDB): ReviewAPI {
     text: from.text,
     rating: from.rating,
     author: from.author,
+    likes: from.likes,
+    dislikes: from.dislikes,
     dateAdded: new Date(from.date_added),
     dateEdited: from.edited_at ? new Date(from.edited_at) : null,
   };
