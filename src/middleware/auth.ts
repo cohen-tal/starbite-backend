@@ -24,7 +24,10 @@ export function authenticateAccessToken(
     process.env.ACCESS_TOKEN_SECRET_KEY!,
     { complete: false },
     (err, payload) => {
-      if (err) return res.sendStatus(403);
+      if (err) {
+        console.log("jwt access token expired");
+        return res.status(403).json({ message: "JWT Access token expired!" });
+      }
 
       if (assertPayload(payload)) {
         (req as RequestWithId).userId = payload["userId"];
