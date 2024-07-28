@@ -9,6 +9,7 @@ import {
 } from "./middleware/auth";
 import {
   RestaurantAPI,
+  ReviewAPI,
   RestaurantDB,
   RestaurantPreviewCardAPI,
   Token,
@@ -16,7 +17,12 @@ import {
 } from "./types";
 import { uploadImageToCloudinary } from "./utils";
 import z from "zod";
-import { UserDBSchema, RestaurantDBSchema, ReviewDBSchema } from "./validation";
+import {
+  UserDBSchema,
+  RestaurantDBSchema,
+  ReviewDBSchema,
+  PatchReviewDBSchema,
+} from "./validation";
 import { RequestWithId } from "./middleware/auth";
 import { parseToRestaurantAPI } from "./parser";
 
@@ -54,8 +60,6 @@ app.get("/api/v1/home", async (req: Request, res: Response) => {
      LIMIT 5`
   );
 
-  console.dir(recentRestaurants.rows);
-
   res.json({
     reviews: recentReviews.rows,
     restaurants: recentRestaurants.rows,
@@ -65,7 +69,6 @@ app.get("/api/v1/home", async (req: Request, res: Response) => {
 app.post("/api/v1/users", async (req: Request, res: Response) => {
   try {
     const user: z.infer<typeof UserDBSchema> = UserDBSchema.parse(req.body);
-    console.log(user);
 
     const { rows: existingUser } = await pool.query<UserAPI>(
       "SELECT id, name, email, image FROM users WHERE email = $1",
@@ -173,7 +176,6 @@ app.post(
     let urls: string[] = [];
     try {
       const newRestaurant = RestaurantDBSchema.parse(req.body);
-      console.log(req.userId);
 
       if (req.files) {
         const promises = uploadImageToCloudinary(
@@ -219,7 +221,6 @@ app.get(
   "/api/v1/restaurants/:restaurantId",
   async (req: Request, res: Response) => {
     const restaurantId = req.params.restaurantId;
-    console.log(restaurantId);
 
     try {
       const { rows } = await pool.query<RestaurantDB>(
@@ -284,6 +285,8 @@ app.get(
   }
 );
 
+/* Review API endpoints */
+
 app.post(
   "/api/v1/reviews",
   upload.array("images", 5),
@@ -298,6 +301,60 @@ app.post(
       res.status(200).json({ id: rows[0].id });
     } catch (err) {
       console.log(err);
+    }
+  }
+);
+
+app.get(
+  "/api/v1/edit/reviews/:reviewId",
+  async (req: RequestWithId, res: Response) => {
+    const reviewId = req.params.reviewId;
+
+    try {
+      const { rows } = await pool.query(
+        "SELECT reviews.text, reviews.rating FROM reviews WHERE reviews.id = $1 AND reviews.added_by = $2",
+        [reviewId, req.userId]
+      );
+
+      console.dir(rows);
+
+      res.json(rows);
+    } catch (err) {
+      console.log(err);
+      res
+        .status(400)
+        .json({ message: "Error getting review data. Please try again later" });
+    }
+  }
+);
+
+app.patch(
+  "/api/v1/reviews",
+  upload.array("images", 5),
+  async (req: RequestWithId, res: Response) => {
+    const patchedReview = PatchReviewDBSchema.parse(req.body);
+
+    try {
+      const { rows } = await pool.query(
+        `UPDATE reviews 
+       SET text = $1, rating = $2, edited_at = $3
+       WHERE reviews.id = $4 AND reviews.added_by = $5
+       RETURNING text, rating, edited_at`,
+        [
+          patchedReview.review,
+          patchedReview.rating,
+          new Date().toISOString(),
+          patchedReview.id,
+          req.userId,
+        ]
+      );
+
+      return res.json(rows[0]);
+    } catch (err) {
+      console.log(err);
+      res
+        .status(400)
+        .json({ message: "Error updating review. Please try again later" });
     }
   }
 );
