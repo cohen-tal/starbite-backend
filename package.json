@@ -3,6 +3,8 @@
   "version": "1.0.0",
   "main": "app.js",
   "scripts": {
+    "build": "tsc",
+    "start": "node dist/app.js",
     "dev": "nodemon --watch 'src/**/*' -e ts,tsx --exec node -r ts-node/register --env-file=.env ./src/app.ts",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
