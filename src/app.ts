@@ -35,7 +35,7 @@ app.use(cors(), express.json(), express.urlencoded({ extended: true }));
 
 const upload = multer();
 
-const pool = new Pool({ connectionString: DB });
+const pool = new Pool({ connectionString: process.env.DB_URL });
 
 pool
   .connect()
