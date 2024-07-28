@@ -62,3 +62,15 @@ export const ReviewDBSchema = z.object({
     }),
   images: z.array(ImageFileSchema).optional(),
 });
+
+export const PatchReviewDBSchema = z.object({
+  id: z.string(),
+  review: z.string().max(255, "Max length is 255 characters.").optional(),
+  rating: z
+    .string()
+    .transform(Number)
+    .refine((val) => !isNaN(val) && val >= 0.5 && val <= 5, {
+      message: "Rating must be a valid number between 0.5 and 5.",
+    }),
+  images: z.array(ImageFileSchema).optional(),
+});
