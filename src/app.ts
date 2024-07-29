@@ -359,6 +359,33 @@ app.patch(
   }
 );
 
+app.delete("/api/v1/reviews", async (req: RequestWithId, res: Response) => {
+  const { reviewId, authorId } = req.body;
+  console.log(reviewId, authorId);
+
+  try {
+    if (!(req.userId === authorId)) {
+      return res.status(401);
+    }
+    const { rows } = await pool.query(
+      "DELETE FROM reviews WHERE id = $1 AND reviews.added_by = $2 RETURNING id",
+      [reviewId, authorId]
+    );
+
+    if (rows.length < 1) {
+      return res
+        .status(400)
+        .json({ message: "Review to delete was not found." });
+    }
+    return res.json({ message: "Review deleted successfully" });
+  } catch (err) {
+    console.error(err);
+    return res
+      .status(500)
+      .json({ message: "An error occurred, please try again later." });
+  }
+});
+
 app.listen(port, () => {
   console.log(`Server is running on port ${port}`);
 });
