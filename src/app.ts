@@ -1,7 +1,7 @@
 import express, { Request, Response } from "express";
 import { Pool } from "pg";
 import multer from "multer";
-import cors from "cors";
+import cors, { CorsOptions } from "cors";
 import {
   authenticateAccessToken,
   generateToken,
@@ -29,7 +29,12 @@ import { parseToRestaurantAPI } from "./parser";
 const DB = "postgresql://postgres:@localhost:5432/StarBite";
 
 const app = express();
-const port = 8080;
+const port = process.env.PORT || 8080;
+
+const corsOptions: CorsOptions = {
+  allowedHeaders: ["GET", "POST", "PATCH", "DELETE"],
+  origin: "https://starbite-reviews.vercel.app",
+};
 
 app.use(cors(), express.json(), express.urlencoded({ extended: true }));
 
