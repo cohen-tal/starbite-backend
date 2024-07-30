@@ -226,6 +226,7 @@ app.get(
   "/api/v1/restaurants/:restaurantId",
   async (req: Request, res: Response) => {
     const restaurantId = req.params.restaurantId;
+    console.log("Request for restaurant arrived.");
 
     try {
       const { rows } = await pool.query<RestaurantDB>(
@@ -277,6 +278,7 @@ app.get(
       );
 
       const result: RestaurantDB = rows[0];
+      console.log(result);
 
       res.status(200).json(parseToRestaurantAPI(result));
     } catch (err) {
