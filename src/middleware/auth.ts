@@ -25,7 +25,7 @@ export function authenticateAccessToken(
     { complete: false },
     (err, payload) => {
       if (err) {
-        console.log("jwt access token expired");
+        console.log(err);
         return res.status(403).json({ message: "JWT Access token expired!" });
       }
 
