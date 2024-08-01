@@ -1,4 +1,11 @@
-import { RestaurantAPI, RestaurantDB, ReviewAPI, ReviewsDB } from "./types";
+import {
+  RecentReview,
+  RecentReviewDB,
+  RestaurantAPI,
+  RestaurantDB,
+  ReviewAPI,
+  ReviewsDB,
+} from "./types";
 
 export function parseToRestaurantAPI(from: RestaurantDB): RestaurantAPI {
   const restaurant: RestaurantAPI = {
@@ -30,6 +37,19 @@ export function parseToReviewAPI(from: ReviewsDB): ReviewAPI {
     dislikes: from.dislikes,
     dateAdded: new Date(from.date_added),
     dateEdited: from.edited_at ? new Date(from.edited_at) : null,
+  };
+
+  return review;
+}
+
+export function parseToRecentReview(from: RecentReviewDB): RecentReview {
+  const review: RecentReview = {
+    id: from.id,
+    image: from.image,
+    name: from.name,
+    rating: Number(from.rating),
+    restaurantId: from.restaurant_id,
+    text: from.text,
   };
 
   return review;
