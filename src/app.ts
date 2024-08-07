@@ -1,4 +1,4 @@
-import express, { Request, Response } from "express";
+import express, { json, Request, Response } from "express";
 import { Pool } from "pg";
 import multer from "multer";
 import cors, { CorsOptions } from "cors";
@@ -14,6 +14,11 @@ import {
   RestaurantPreviewCardAPI,
   Token,
   UserAPI,
+  RecentReview,
+  RecentReviewDB,
+  RecentRestaurant,
+  UserProfileData,
+  ReviewsDB,
 } from "./types";
 import { uploadImageToCloudinary } from "./utils";
 import z from "zod";
@@ -24,7 +29,11 @@ import {
   PatchReviewDBSchema,
 } from "./validation";
 import { RequestWithId } from "./middleware/auth";
-import { parseToRestaurantAPI } from "./parser";
+import {
+  parseToHistoryReview,
+  parseToRecentReview,
+  parseToRestaurantAPI,
+} from "./parser";
 
 const DB = "postgresql://postgres:@localhost:5432/StarBite";
 
@@ -48,26 +57,36 @@ pool
   .catch((err) => console.error("Error connecting to the database", err));
 
 app.get("/api/v1/home", async (req: Request, res: Response) => {
-  const recentReviews = await pool.query(
-    `SELECT reviews.id, reviews.text, reviews.rating, users.name, users.image
+  const recentReviews = await pool.query<RecentReviewDB>(
+    `SELECT 
+      reviews.id, 
+      reviews.text, 
+      reviews.rating,
+      reviews.restaurant_id, 
+      users.name, 
+      users.image
      FROM reviews
      JOIN users ON reviews.added_by = users.id
      ORDER BY reviews.date_added DESC
-     LIMIT 5`
+     LIMIT 30`
   );
 
-  const recentRestaurants = await pool.query(
-    `SELECT r.id, r.name, r.address, r.categories, json_agg(images.url) AS images
+  const recentRestaurants = await pool.query<RecentRestaurant>(
+    `SELECT r.id, r.name, r.address, r.categories, COALESCE(ROUND(AVG(reviews.rating), 2), 0) AS rating, json_agg(images.url) AS images
      FROM restaurants AS r
      JOIN images_restaurants AS images ON r.id = images.restaurant_id
+     LEFT JOIN reviews ON r.id = reviews.restaurant_id
      GROUP BY r.id  
      ORDER BY r.date_added DESC
-     LIMIT 5`
+     LIMIT 3`
   );
 
+  console.log(recentRestaurants.rows);
   res.json({
-    reviews: recentReviews.rows,
     restaurants: recentRestaurants.rows,
+    reviews: recentReviews.rows.map((reviewDB) =>
+      parseToRecentReview(reviewDB)
+    ),
   });
 });
 
@@ -148,13 +167,37 @@ app.get("/api/v1/restaurants", async (req: Request, res: Response) => {
   const userLocation = req.query.loc;
 
   try {
+    // return the restaurants added in descending order from newly added to old
     if (!Array.isArray(userLocation) || !userLocation) {
-      throw new Error("Invalid user location coordinates!");
+      const resultSet = await pool.query<RestaurantPreviewCardAPI>(
+        `
+          SELECT 
+            r.id, 
+            r.name, 
+            r.address, 
+            r.categories, 
+            ROUND(AVG(reviews.rating), 2) AS rating, 
+            json_agg(images.url) AS images
+          FROM restaurants AS r
+          JOIN images_restaurants AS images ON r.id = images.restaurant_id
+          LEFT JOIN reviews ON r.id = reviews.restaurant_id
+          GROUP BY r.id
+          ORDER BY r.date_added DESC;
+          `
+      );
+      return res.json(resultSet.rows);
     }
 
-    const resultSet = await pool.query<RestaurantPreviewCardAPI>(
+    //return the restaurants within a certain radius of the current location of the user
+    const resultWithinRadius = await pool.query<RestaurantPreviewCardAPI>(
       `
-        SELECT r.id, r.name, ROUND(AVG(reviews.rating), 2) AS rating, r.address, r.categories, json_agg(images.url) AS images
+        SELECT 
+          r.id, 
+          r.name, 
+          r.address, 
+          r.categories, 
+          ROUND(AVG(reviews.rating), 2) AS rating, 
+          json_agg(images.url) AS images
         FROM restaurants AS r
         JOIN images_restaurants AS images ON r.id = images.restaurant_id
         LEFT JOIN reviews ON r.id = reviews.restaurant_id
@@ -164,10 +207,12 @@ app.get("/api/v1/restaurants", async (req: Request, res: Response) => {
       [userLocation[1], userLocation[0], radius]
     );
 
-    res.json(resultSet.rows);
+    res.json(resultWithinRadius.rows);
   } catch (err) {
     console.error(err);
-    res.status(400).json({ message: err });
+    res
+      .status(500)
+      .json({ message: "Internal error, please try again later." });
   }
 });
 
@@ -226,7 +271,6 @@ app.get(
   "/api/v1/restaurants/:restaurantId",
   async (req: Request, res: Response) => {
     const restaurantId = req.params.restaurantId;
-    console.log("Request for restaurant arrived.");
 
     try {
       const { rows } = await pool.query<RestaurantDB>(
@@ -244,8 +288,6 @@ app.get(
             json_agg(images_restaurants.url) AS images,
             COALESCE(
                 json_agg(
-                    CASE 
-                        WHEN reviews.id IS NOT NULL THEN 
                         json_build_object(
                             'id', reviews.id, 
                             'text', reviews.text, 
@@ -263,8 +305,6 @@ app.get(
                             ),
                             'images', json_build_object('url', images_reviews.url)
                         ) 
-                        ELSE NULL 
-                    END
                 ) FILTER (WHERE reviews.id IS NOT NULL), '[]') AS reviews
         FROM restaurants AS r
         LEFT JOIN reviews ON r.id = reviews.restaurant_id
@@ -278,7 +318,6 @@ app.get(
       );
 
       const result: RestaurantDB = rows[0];
-      console.log(result);
 
       res.status(200).json(parseToRestaurantAPI(result));
     } catch (err) {
@@ -322,8 +361,6 @@ app.get(
         "SELECT reviews.text, reviews.rating FROM reviews WHERE reviews.id = $1 AND reviews.added_by = $2",
         [reviewId, req.userId]
       );
-
-      console.dir(rows);
 
       res.json(rows);
     } catch (err) {
@@ -390,6 +427,82 @@ app.delete("/api/v1/reviews", async (req: RequestWithId, res: Response) => {
     return res
       .status(500)
       .json({ message: "An error occurred, please try again later." });
+  }
+});
+
+/* User endpoints */
+
+app.get("/api/v1/profile", async (req: RequestWithId, res: Response) => {
+  try {
+    const { rows } = await pool.query<{
+      since: Date;
+      restaurants: RecentRestaurant[];
+      reviews: ReviewsDB[];
+    }>(
+      `
+      WITH user_restaurants AS (
+      SELECT 
+          r.id, 
+          r.name, 
+          r.address, 
+          r.categories,
+          r.added_by,
+          COALESCE(ROUND(AVG(reviews.rating),1), 0) AS average_rating,
+          json_agg(i.url) AS images
+      FROM restaurants AS r
+      LEFT JOIN reviews ON r.id = reviews.restaurant_id
+      LEFT JOIN images_restaurants AS i ON r.id = i.restaurant_id
+      WHERE r.added_by = $1
+      GROUP BY r.id
+      ),
+      user_reviews AS (
+          SELECT 
+            reviews.id,
+            reviews.added_by, 
+            reviews.text, 
+            reviews.likes, 
+            reviews.dislikes, 
+            reviews.rating, 
+            reviews.date_added, 
+            reviews.edited_at, 
+            reviews.restaurant_id 
+          FROM reviews 
+          WHERE reviews.added_by = $1
+      )
+      SELECT 
+          users.date_added AS since,
+          json_agg(jsonb_build_object(
+              'id', user_restaurants.id, 
+              'name', user_restaurants.name,
+              'address', user_restaurants.address,
+              'categories', user_restaurants.categories,
+              'rating', user_restaurants.average_rating,
+              'images', user_restaurants.images
+          )) AS restaurants,
+          json_agg(DISTINCT to_jsonb(user_reviews.*)) AS reviews
+      FROM users
+      JOIN user_restaurants ON users.id = user_restaurants.added_by
+      LEFT JOIN user_reviews ON users.id = user_reviews.added_by
+      GROUP BY users.id, users.date_added;
+      `,
+      [req.userId]
+    );
+
+    const profileData = rows[0];
+
+    const data: UserProfileData = {
+      since: profileData.since,
+      restaurants: profileData.restaurants,
+      reviews: profileData.reviews.map((review) =>
+        parseToHistoryReview(review)
+      ),
+    };
+
+    console.log(data);
+
+    res.json(data);
+  } catch (err: any) {
+    console.log(err.code);
   }
 });
 
