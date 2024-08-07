@@ -106,3 +106,11 @@ export interface RecentRestaurant
   > {
   description?: string;
 }
+
+export interface HistoryReview extends Omit<ReviewAPI, "author"> {}
+
+export interface UserProfileData {
+  since: Date;
+  restaurants: RecentRestaurant[];
+  reviews: HistoryReview[];
+}
