@@ -434,6 +434,8 @@ app.delete("/api/v1/reviews", async (req: RequestWithId, res: Response) => {
 
 app.get("/api/v1/profile", async (req: RequestWithId, res: Response) => {
   try {
+    console.log("user id ", req.userId);
+
     const { rows } = await pool.query<{
       since: Date;
       restaurants: RecentRestaurant[];
@@ -489,6 +491,8 @@ app.get("/api/v1/profile", async (req: RequestWithId, res: Response) => {
     );
 
     const profileData = rows[0];
+
+    console.log(profileData);
 
     const data: UserProfileData = {
       since: profileData.since,
