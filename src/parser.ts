@@ -1,4 +1,5 @@
 import {
+  HistoryReview,
   RecentReview,
   RecentReviewDB,
   RestaurantAPI,
@@ -53,4 +54,20 @@ export function parseToRecentReview(from: RecentReviewDB): RecentReview {
   };
 
   return review;
+}
+
+export function parseToHistoryReview(
+  from: Omit<ReviewsDB, "author">
+): HistoryReview {
+  const historyReview: HistoryReview = {
+    id: from.id,
+    rating: from.rating,
+    dateAdded: new Date(from.date_added),
+    dateEdited: from.edited_at ? new Date(from.edited_at) : null,
+    text: from.text,
+    dislikes: Number(from.dislikes),
+    likes: Number(from.likes),
+  };
+
+  return historyReview;
 }
