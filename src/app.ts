@@ -434,8 +434,6 @@ app.delete("/api/v1/reviews", async (req: RequestWithId, res: Response) => {
 
 app.get("/api/v1/profile", async (req: RequestWithId, res: Response) => {
   try {
-    console.log("user id ", req.userId);
-
     const { rows } = await pool.query<{
       since: Date;
       restaurants: RecentRestaurant[];
@@ -481,7 +479,7 @@ app.get("/api/v1/profile", async (req: RequestWithId, res: Response) => {
               'rating', user_restaurants.average_rating,
               'images', user_restaurants.images
           )) AS restaurants,
-          json_agg(DISTINCT to_jsonb(user_reviews.*)) AS reviews
+          COALESCE(json_agg(DISTINCT to_jsonb(user_reviews.*)) FILTER (WHERE user_reviews.id IS NOT NULL), '[]') AS reviews
       FROM users
       JOIN user_restaurants ON users.id = user_restaurants.added_by
       LEFT JOIN user_reviews ON users.id = user_reviews.added_by
@@ -492,21 +490,21 @@ app.get("/api/v1/profile", async (req: RequestWithId, res: Response) => {
 
     const profileData = rows[0];
 
-    console.log(profileData);
-
     const data: UserProfileData = {
       since: profileData.since,
       restaurants: profileData.restaurants,
-      reviews: profileData.reviews.map((review) =>
-        parseToHistoryReview(review)
-      ),
+      reviews: profileData.reviews.map(parseToHistoryReview),
     };
 
-    console.log(data);
-
     res.json(data);
-  } catch (err: any) {
-    console.log(err.code);
+  } catch (err) {
+    if (err instanceof Error && "code" in err) {
+      //TODO: add global error handler that will throw relevant errors for each code.
+      console.log("PG error, code: ", err.code);
+    }
+    return res
+      .status(504)
+      .json({ message: "An error has occurred, please try again later" });
   }
 });
 
