@@ -81,7 +81,6 @@ app.get("/api/v1/home", async (req: Request, res: Response) => {
      LIMIT 3`
   );
 
-  console.log(recentRestaurants.rows);
   res.json({
     restaurants: recentRestaurants.rows,
     reviews: recentReviews.rows.map((reviewDB) =>
@@ -285,7 +284,7 @@ app.get(
             r.address,
             r.categories,
             ROUND(AVG(CASE WHEN reviews.rating IS NOT NULL THEN reviews.rating ELSE 0 END), 2) AS rating,
-            json_agg(images_restaurants.url) AS images,
+            json_agg(images_restaurants.url) FILTER (WHERE images_restaurants.url IS NOT NULL) AS images,
             COALESCE(
                 json_agg(
                         json_build_object(
@@ -405,7 +404,6 @@ app.patch(
 
 app.delete("/api/v1/reviews", async (req: RequestWithId, res: Response) => {
   const { reviewId, authorId } = req.body;
-  console.log(reviewId, authorId);
 
   try {
     if (!(req.userId === authorId)) {
@@ -448,7 +446,7 @@ app.get("/api/v1/profile", async (req: RequestWithId, res: Response) => {
           r.categories,
           r.added_by,
           COALESCE(ROUND(AVG(reviews.rating),1), 0) AS average_rating,
-          json_agg(i.url) AS images
+          COALESCE(json_agg(i.url) FILTER (WHERE i.url IS NOT NULL),'[]') AS images
       FROM restaurants AS r
       LEFT JOIN reviews ON r.id = reviews.restaurant_id
       LEFT JOIN images_restaurants AS i ON r.id = i.restaurant_id
