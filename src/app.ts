@@ -19,6 +19,7 @@ import {
   RecentRestaurant,
   UserProfileData,
   ReviewsDB,
+  SearchedRestaurant,
 } from "./types";
 import { uploadImageToCloudinary } from "./utils";
 import z from "zod";
@@ -49,7 +50,7 @@ app.use(cors(), express.json(), express.urlencoded({ extended: true }));
 
 const upload = multer();
 
-const pool = new Pool({ connectionString: process.env.DB_URL });
+const pool = new Pool({ connectionString: DB });
 
 pool
   .connect()
@@ -212,6 +213,40 @@ app.get("/api/v1/restaurants", async (req: Request, res: Response) => {
     res
       .status(500)
       .json({ message: "Internal error, please try again later." });
+  }
+});
+
+app.get("/api/v1/search", async (req: Request, res: Response) => {
+  const searchBy = req.query.q;
+  console.log(searchBy);
+
+  try {
+    const { rows } = await pool.query<SearchedRestaurant>(
+      `
+      WITH search_res AS (
+      SELECT r.id, r.name, r.address
+      FROM restaurants AS r
+      WHERE r.name ILIKE $1
+      ORDER BY r.date_added DESC
+      )
+      SELECT search_res.*, first_image.url AS image
+      FROM search_res
+      LEFT JOIN LATERAL (
+          SELECT url
+          FROM images_restaurants
+          WHERE restaurant_id = search_res.id
+          LIMIT 1
+      ) first_image ON true;
+      `,
+      [`%${searchBy}%`]
+    );
+
+    return res.json(rows);
+  } catch (err) {
+    console.log(err);
+    res
+      .status(500)
+      .json({ message: "Error has occurred. Please try again later." });
   }
 });
 

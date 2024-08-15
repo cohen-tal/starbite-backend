@@ -107,6 +107,11 @@ export interface RecentRestaurant
   description?: string;
 }
 
+export interface SearchedRestaurant
+  extends Pick<RestaurantAPI, "address" | "id" | "name"> {
+  url: string | null;
+}
+
 export interface HistoryReview extends Omit<ReviewAPI, "author"> {}
 
 export interface UserProfileData {
