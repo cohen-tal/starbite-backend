@@ -50,7 +50,7 @@ app.use(cors(), express.json(), express.urlencoded({ extended: true }));
 
 const upload = multer();
 
-const pool = new Pool({ connectionString: DB });
+const pool = new Pool({ connectionString: process.env.DB_URL });
 
 pool
   .connect()
@@ -218,7 +218,6 @@ app.get("/api/v1/restaurants", async (req: Request, res: Response) => {
 
 app.get("/api/v1/search", async (req: Request, res: Response) => {
   const searchBy = req.query.q;
-  console.log(searchBy);
 
   try {
     const { rows } = await pool.query<SearchedRestaurant>(
@@ -249,57 +248,6 @@ app.get("/api/v1/search", async (req: Request, res: Response) => {
       .json({ message: "Error has occurred. Please try again later." });
   }
 });
-
-app.use(authenticateAccessToken);
-
-// Restaurants API endpoints
-app.post(
-  "/api/v1/restaurants",
-  upload.array("images", 5),
-  async (req: RequestWithId, res: Response) => {
-    let urls: string[] = [];
-    try {
-      const newRestaurant = RestaurantDBSchema.parse(req.body);
-
-      if (req.files) {
-        const promises = uploadImageToCloudinary(
-          req.files as Express.Multer.File[]
-        );
-
-        urls = await Promise.all(promises);
-      }
-
-      const { rows } = await pool.query<{ id: string }>(
-        "INSERT INTO restaurants(name, address, latitude, longitude, categories , added_by) values($1, $2, $3, $4, $5, $6) RETURNING id",
-        [
-          newRestaurant.name,
-          newRestaurant.address,
-          newRestaurant.lat,
-          newRestaurant.lng,
-          newRestaurant.categories,
-          req.userId,
-        ]
-      );
-
-      const restaurantId = rows[0].id;
-
-      const urlsAdded = urls.map(
-        async (url) =>
-          await pool.query<{ url: string }>(
-            "INSERT INTO images_restaurants(restaurant_id, url) VALUES($1, $2) RETURNING url",
-            [restaurantId, url]
-          )
-      );
-
-      const addedUrls = await Promise.all(urlsAdded);
-
-      res.status(200).json({ id: restaurantId });
-    } catch (err) {
-      console.log(err);
-      res.status(400);
-    }
-  }
-);
 
 app.get(
   "/api/v1/restaurants/:restaurantId",
@@ -361,6 +309,57 @@ app.get(
         message:
           "Failed retreiving restaurant from data. Please try again later.",
       });
+    }
+  }
+);
+
+app.use(authenticateAccessToken);
+
+// Restaurants API endpoints
+app.post(
+  "/api/v1/restaurants",
+  upload.array("images", 5),
+  async (req: RequestWithId, res: Response) => {
+    let urls: string[] = [];
+    try {
+      const newRestaurant = RestaurantDBSchema.parse(req.body);
+
+      if (req.files) {
+        const promises = uploadImageToCloudinary(
+          req.files as Express.Multer.File[]
+        );
+
+        urls = await Promise.all(promises);
+      }
+
+      const { rows } = await pool.query<{ id: string }>(
+        "INSERT INTO restaurants(name, address, latitude, longitude, categories , added_by) values($1, $2, $3, $4, $5, $6) RETURNING id",
+        [
+          newRestaurant.name,
+          newRestaurant.address,
+          newRestaurant.lat,
+          newRestaurant.lng,
+          newRestaurant.categories,
+          req.userId,
+        ]
+      );
+
+      const restaurantId = rows[0].id;
+
+      const urlsAdded = urls.map(
+        async (url) =>
+          await pool.query<{ url: string }>(
+            "INSERT INTO images_restaurants(restaurant_id, url) VALUES($1, $2) RETURNING url",
+            [restaurantId, url]
+          )
+      );
+
+      const addedUrls = await Promise.all(urlsAdded);
+
+      res.status(200).json({ id: restaurantId });
+    } catch (err) {
+      console.log(err);
+      res.status(400);
     }
   }
 );
