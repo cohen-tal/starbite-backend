@@ -1,4 +1,4 @@
-import express, { json, Request, Response } from "express";
+import express, { Request, Response } from "express";
 import { Pool } from "pg";
 import multer from "multer";
 import cors, { CorsOptions } from "cors";
@@ -8,13 +8,10 @@ import {
   authenticateRefreshToken,
 } from "./middleware/auth";
 import {
-  RestaurantAPI,
-  ReviewAPI,
   RestaurantDB,
   RestaurantPreviewCardAPI,
   Token,
   UserAPI,
-  RecentReview,
   RecentReviewDB,
   RecentRestaurant,
   UserProfileData,
@@ -65,12 +62,17 @@ app.get("/api/v1/home", async (req: Request, res: Response) => {
       reviews.rating,
       reviews.restaurant_id, 
       users.name, 
-      users.image
+      users.image,
+      COALESCE(json_agg(images.url) FILTER (WHERE images.url IS NOT NULL),'[]') AS images
      FROM reviews
      JOIN users ON reviews.added_by = users.id
+     LEFT JOIN images_reviews AS images ON images.review_id = reviews.id
+     GROUP BY reviews.id, users.name, users.image
      ORDER BY reviews.date_added DESC
      LIMIT 30`
   );
+
+  console.log(recentReviews.rows);
 
   const recentRestaurants = await pool.query<RecentRestaurant>(
     `SELECT r.id, r.name, r.address, r.categories, COALESCE(ROUND(AVG(reviews.rating), 2), 0) AS rating, json_agg(images.url) AS images
@@ -256,7 +258,8 @@ app.get(
 
     try {
       const { rows } = await pool.query<RestaurantDB>(
-        `SELECT 
+        `WITH restaurant_data AS (
+        SELECT
             r.id,
             r.name, 
             r.latitude, 
@@ -267,39 +270,55 @@ app.get(
             r.address,
             r.categories,
             ROUND(AVG(CASE WHEN reviews.rating IS NOT NULL THEN reviews.rating ELSE 0 END), 2) AS rating,
-            json_agg(images_restaurants.url) FILTER (WHERE images_restaurants.url IS NOT NULL) AS images,
-            COALESCE(
-                json_agg(
-                        json_build_object(
-                            'id', reviews.id, 
-                            'text', reviews.text, 
-                            'rating', reviews.rating,
-                            'likes', reviews.likes,
-                            'dislikes', reviews.dislikes,
-                            'date_added', reviews.date_added,
-                            'edited_at', reviews.edited_at,
-                            'added_by', reviews.added_by,
-                            'author', json_build_object(
-                                'id', users.id, 
-                                'name', users.name, 
-                                'email', users.email,
-                                'image', users.image
-                            ),
-                            'images', json_build_object('url', images_reviews.url)
-                        ) 
-                ) FILTER (WHERE reviews.id IS NOT NULL), '[]') AS reviews
+            jsonb_agg(ir.url) FILTER (WHERE ir.url IS NOT NULL) AS images
         FROM restaurants AS r
         LEFT JOIN reviews ON r.id = reviews.restaurant_id
-        LEFT JOIN users ON reviews.added_by = users.id
-        LEFT JOIN images_restaurants ON r.id = images_restaurants.restaurant_id
-        LEFT JOIN images_reviews ON reviews.id = images_reviews.review_id
+        LEFT JOIN images_restaurants AS ir ON r.id = ir.restaurant_id
         WHERE r.id = $1
-        GROUP BY r.id;
-        `,
+        GROUP BY r.id
+    ),
+    review_images AS (
+        SELECT
+            review_id,
+            json_agg(url) FILTER (WHERE url IS NOT NULL) AS images
+        FROM images_reviews
+        GROUP BY review_id
+    )
+    SELECT 
+        rd.*,
+        COALESCE(
+            json_agg(
+                json_build_object(
+                    'id', rv.id, 
+                    'text', rv.text, 
+                    'rating', rv.rating,
+                    'likes', rv.likes,
+                    'dislikes', rv.dislikes,
+                    'date_added', rv.date_added,
+                    'edited_at', rv.edited_at,
+                    'added_by', rv.added_by,
+                    'author', jsonb_build_object(
+                        'id', u.id, 
+                        'name', u.name, 
+                        'email', u.email,
+                        'image', u.image
+                    ),
+                    'images', ri.images
+                )
+            ) FILTER (WHERE rv.id IS NOT NULL), '[]'
+        ) AS reviews
+    FROM restaurant_data AS rd
+    LEFT JOIN reviews AS rv ON rd.id = rv.restaurant_id
+    LEFT JOIN review_images AS ri ON rv.id = ri.review_id
+    LEFT JOIN users AS u ON rv.added_by = u.id
+    GROUP BY rd.id, rd.name, rd.latitude, rd.longitude, rd.date_added, rd.edited_at, rd.added_by, rd.address, rd.categories, rd.rating, rd.images;
+      `,
         [restaurantId]
       );
 
       const result: RestaurantDB = rows[0];
+
+      console.log(result);
 
       res.status(200).json(parseToRestaurantAPI(result));
     } catch (err) {
@@ -370,14 +389,36 @@ app.post(
   "/api/v1/reviews",
   upload.array("images", 5),
   async (req: RequestWithId, res: Response) => {
-    const newReview = ReviewDBSchema.parse(req.body);
-
+    let urls: string[] = [];
     try {
+      const newReview = ReviewDBSchema.parse(req.body);
+
+      if (req.files) {
+        const promises = uploadImageToCloudinary(
+          req.files as Express.Multer.File[]
+        );
+
+        urls = await Promise.all(promises);
+      }
+
       const { rows } = await pool.query(
         "INSERT INTO reviews(rating, text, restaurant_id, added_by) VALUES($1, $2, $3, $4) RETURNING id",
         [newReview.rating, newReview.review, newReview.restaurantId, req.userId]
       );
-      res.status(200).json({ id: rows[0].id });
+
+      const reviewId = rows[0].id;
+
+      const urlsAdded = urls.map(
+        async (url) =>
+          await pool.query<{ url: string }>(
+            "INSERT INTO images_reviews(review_id, url) VALUES($1, $2) RETURNING url",
+            [reviewId, url]
+          )
+      );
+
+      const addedUrls = await Promise.all(urlsAdded);
+
+      res.status(200).json({ id: reviewId });
     } catch (err) {
       console.log(err);
     }
