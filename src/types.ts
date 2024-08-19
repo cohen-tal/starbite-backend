@@ -57,6 +57,7 @@ export interface RecentReviewDB {
   text: string;
   rating: string;
   restaurant_id: string;
+  images?: string[];
 }
 
 /* API response interfaces */
@@ -87,15 +88,16 @@ export interface ReviewAPI {
   author: UserAPI;
   dateAdded: Date;
   dateEdited: Date | null;
+  images?: string[] | null;
 }
 
 export interface RecentReview
   extends Omit<
     ReviewAPI,
-    "images" | "dateAdded" | "dateEdited" | "likes" | "dislikes" | "author"
+    "dateAdded" | "dateEdited" | "likes" | "dislikes" | "author"
   > {
-  name: string;
-  image: string;
+  authorName: string;
+  authorImage: string;
   restaurantId: string;
 }
 

@@ -46,11 +46,12 @@ export function parseToReviewAPI(from: ReviewsDB): ReviewAPI {
 export function parseToRecentReview(from: RecentReviewDB): RecentReview {
   const review: RecentReview = {
     id: from.id,
-    image: from.image,
-    name: from.name,
+    authorImage: from.image,
+    authorName: from.name,
     rating: Number(from.rating),
     restaurantId: from.restaurant_id,
     text: from.text,
+    images: from.images,
   };
 
   return review;
