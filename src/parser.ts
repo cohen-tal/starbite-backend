@@ -38,6 +38,7 @@ export function parseToReviewAPI(from: ReviewsDB): ReviewAPI {
     dislikes: from.dislikes,
     dateAdded: new Date(from.date_added),
     dateEdited: from.edited_at ? new Date(from.edited_at) : null,
+    images: from.images ?? [],
   };
 
   return review;
@@ -68,6 +69,7 @@ export function parseToHistoryReview(
     text: from.text,
     dislikes: Number(from.dislikes),
     likes: Number(from.likes),
+    images: from.images ?? [],
   };
 
   return historyReview;
