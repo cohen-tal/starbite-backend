@@ -75,7 +75,7 @@ app.get("/api/v1/home", async (req: Request, res: Response) => {
   console.log(recentReviews.rows);
 
   const recentRestaurants = await pool.query<RecentRestaurant>(
-    `SELECT r.id, r.name, r.address, r.categories, COALESCE(ROUND(AVG(reviews.rating), 2), 0) AS rating, json_agg(images.url) AS images
+    `SELECT r.id, r.name, r.address, r.categories, COALESCE(ROUND(AVG(reviews.rating), 1), 0) AS rating, json_agg(images.url) AS images
      FROM restaurants AS r
      JOIN images_restaurants AS images ON r.id = images.restaurant_id
      LEFT JOIN reviews ON r.id = reviews.restaurant_id
@@ -178,7 +178,7 @@ app.get("/api/v1/restaurants", async (req: Request, res: Response) => {
             r.name, 
             r.address, 
             r.categories, 
-            ROUND(AVG(reviews.rating), 2) AS rating, 
+            ROUND(AVG(reviews.rating), 1) AS rating, 
             json_agg(images.url) AS images
           FROM restaurants AS r
           JOIN images_restaurants AS images ON r.id = images.restaurant_id
@@ -198,7 +198,7 @@ app.get("/api/v1/restaurants", async (req: Request, res: Response) => {
           r.name, 
           r.address, 
           r.categories, 
-          ROUND(AVG(reviews.rating), 2) AS rating, 
+          ROUND(AVG(reviews.rating), 1) AS rating, 
           json_agg(images.url) AS images
         FROM restaurants AS r
         JOIN images_restaurants AS images ON r.id = images.restaurant_id
@@ -259,66 +259,64 @@ app.get(
     try {
       const { rows } = await pool.query<RestaurantDB>(
         `WITH restaurant_data AS (
-        SELECT
-            r.id,
-            r.name, 
-            r.latitude, 
-            r.longitude, 
-            r.date_added, 
-            r.edited_at, 
-            r.added_by, 
-            r.address,
-            r.categories,
-            ROUND(AVG(CASE WHEN reviews.rating IS NOT NULL THEN reviews.rating ELSE 0 END), 2) AS rating,
-            jsonb_agg(ir.url) FILTER (WHERE ir.url IS NOT NULL) AS images
-        FROM restaurants AS r
-        LEFT JOIN reviews ON r.id = reviews.restaurant_id
-        LEFT JOIN images_restaurants AS ir ON r.id = ir.restaurant_id
-        WHERE r.id = $1
-        GROUP BY r.id
-    ),
-    review_images AS (
-        SELECT
-            review_id,
-            json_agg(url) FILTER (WHERE url IS NOT NULL) AS images
-        FROM images_reviews
-        GROUP BY review_id
-    )
-    SELECT 
-        rd.*,
-        COALESCE(
-            json_agg(
-                json_build_object(
-                    'id', rv.id, 
-                    'text', rv.text, 
-                    'rating', rv.rating,
-                    'likes', rv.likes,
-                    'dislikes', rv.dislikes,
-                    'date_added', rv.date_added,
-                    'edited_at', rv.edited_at,
-                    'added_by', rv.added_by,
-                    'author', jsonb_build_object(
-                        'id', u.id, 
-                        'name', u.name, 
-                        'email', u.email,
-                        'image', u.image
-                    ),
-                    'images', ri.images
-                )
-            ) FILTER (WHERE rv.id IS NOT NULL), '[]'
-        ) AS reviews
-    FROM restaurant_data AS rd
-    LEFT JOIN reviews AS rv ON rd.id = rv.restaurant_id
-    LEFT JOIN review_images AS ri ON rv.id = ri.review_id
-    LEFT JOIN users AS u ON rv.added_by = u.id
-    GROUP BY rd.id, rd.name, rd.latitude, rd.longitude, rd.date_added, rd.edited_at, rd.added_by, rd.address, rd.categories, rd.rating, rd.images;
-      `,
+      SELECT
+          r.id,
+          r.name, 
+          r.latitude, 
+          r.longitude, 
+          r.date_added, 
+          r.edited_at, 
+          r.added_by, 
+          r.address,
+          r.categories,
+          ROUND(AVG(CASE WHEN reviews.rating IS NOT NULL THEN reviews.rating ELSE 0 END), 1) AS rating,
+          jsonb_agg(ir.url) FILTER (WHERE ir.url IS NOT NULL) AS images
+      FROM restaurants AS r
+      LEFT JOIN reviews ON r.id = reviews.restaurant_id
+      LEFT JOIN images_restaurants AS ir ON r.id = ir.restaurant_id
+      WHERE r.id = $1
+      GROUP BY r.id
+  ),
+  review_images AS (
+      SELECT
+          review_id,
+          json_agg(url) FILTER (WHERE url IS NOT NULL) AS images
+      FROM images_reviews
+      GROUP BY review_id
+  )
+  SELECT 
+      rd.*,
+      COALESCE(
+          json_agg(
+              json_build_object(
+                  'id', rv.id, 
+                  'text', rv.text, 
+                  'rating', rv.rating,
+                  'likes', rv.likes,
+                  'dislikes', rv.dislikes,
+                  'date_added', rv.date_added,
+                  'edited_at', rv.edited_at,
+                  'added_by', rv.added_by,
+                  'author', jsonb_build_object(
+                      'id', u.id, 
+                      'name', u.name, 
+                      'email', u.email,
+                      'image', u.image
+                  ),
+                  'images', ri.images
+              )
+          ) FILTER (WHERE rv.id IS NOT NULL), '[]'
+      ) AS reviews
+  FROM restaurant_data AS rd
+  LEFT JOIN reviews AS rv ON rd.id = rv.restaurant_id
+  LEFT JOIN review_images AS ri ON rv.id = ri.review_id
+  LEFT JOIN users AS u ON rv.added_by = u.id
+  GROUP BY rd.id, rd.name, rd.latitude, rd.longitude, rd.date_added, rd.edited_at, rd.added_by, rd.address, rd.categories, rd.rating, rd.images;
+        `,
         [restaurantId]
       );
 
       const result: RestaurantDB = rows[0];
-
-      console.log(result);
 
       res.status(200).json(parseToRestaurantAPI(result));
     } catch (err) {
@@ -510,53 +508,51 @@ app.get("/api/v1/profile", async (req: RequestWithId, res: Response) => {
     const { rows } = await pool.query<{
       since: Date;
       restaurants: RecentRestaurant[];
-      reviews: ReviewsDB[];
+      reviews: Omit<ReviewsDB, "author">[];
     }>(
       `
-      WITH user_restaurants AS (
-      SELECT 
-          r.id, 
-          r.name, 
-          r.address, 
-          r.categories,
-          r.added_by,
-          COALESCE(ROUND(AVG(reviews.rating),1), 0) AS average_rating,
-          COALESCE(json_agg(i.url) FILTER (WHERE i.url IS NOT NULL),'[]') AS images
-      FROM restaurants AS r
-      LEFT JOIN reviews ON r.id = reviews.restaurant_id
-      LEFT JOIN images_restaurants AS i ON r.id = i.restaurant_id
-      WHERE r.added_by = $1
-      GROUP BY r.id
+      WITH avg_rating_images AS (
+          SELECT
+              r.id,
+              COALESCE(ROUND(AVG(rating), 1), 1) AS avg_rating,
+              COALESCE(jsonb_agg(url) FILTER (WHERE url IS NOT NULL),'[]') AS images
+          FROM restaurants AS r
+          LEFT JOIN reviews ON r.id = reviews.restaurant_id
+          LEFT JOIN images_restaurants AS ir ON r.id = ir.restaurant_id
+          GROUP BY r.id
+      ),
+      user_restaurants AS (
+          SELECT 
+              r.added_by,
+              jsonb_agg(jsonb_build_object(
+                  'id', r.id, 
+                  'name', r.name,
+                  'address', r.address,
+                  'categories', r.categories,
+                  'rating', COALESCE(ari.avg_rating, 0),
+                  'images', COALESCE(ari.images, '[]')
+              )) AS restaurants
+          FROM restaurants AS r
+          LEFT JOIN avg_rating_images AS ari ON r.id = ari.id
+          WHERE r.added_by = $1
+          GROUP BY r.added_by
       ),
       user_reviews AS (
           SELECT 
-            reviews.id,
-            reviews.added_by, 
-            reviews.text, 
-            reviews.likes, 
-            reviews.dislikes, 
-            reviews.rating, 
-            reviews.date_added, 
-            reviews.edited_at, 
-            reviews.restaurant_id 
+              reviews.added_by,
+              jsonb_agg(to_jsonb(reviews) - 'added_by') AS reviews
           FROM reviews 
           WHERE reviews.added_by = $1
+          GROUP BY reviews.added_by
       )
       SELECT 
-          users.date_added AS since,
-          json_agg(jsonb_build_object(
-              'id', user_restaurants.id, 
-              'name', user_restaurants.name,
-              'address', user_restaurants.address,
-              'categories', user_restaurants.categories,
-              'rating', user_restaurants.average_rating,
-              'images', user_restaurants.images
-          )) AS restaurants,
-          COALESCE(json_agg(DISTINCT to_jsonb(user_reviews.*)) FILTER (WHERE user_reviews.id IS NOT NULL), '[]') AS reviews
-      FROM users
-      JOIN user_restaurants ON users.id = user_restaurants.added_by
-      LEFT JOIN user_reviews ON users.id = user_reviews.added_by
-      GROUP BY users.id, users.date_added;
+          u.date_added AS since,
+          COALESCE(ur.restaurants, '[]') AS restaurants,
+          COALESCE(urv.reviews, '[]') AS reviews
+      FROM users as u
+      LEFT JOIN user_restaurants as ur ON u.id = ur.added_by
+      LEFT JOIN user_reviews as urv ON u.id = urv.added_by
+      WHERE u.id = $1
       `,
       [req.userId]
     );
@@ -574,6 +570,7 @@ app.get("/api/v1/profile", async (req: RequestWithId, res: Response) => {
     if (err instanceof Error && "code" in err) {
       //TODO: add global error handler that will throw relevant errors for each code.
       console.log("PG error, code: ", err.code);
+      console.log(err);
     }
     return res
       .status(504)
