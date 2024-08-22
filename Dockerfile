@@ -8,4 +8,4 @@ RUN npm install && npm run build
 
 EXPOSE 8080
 
-CMD ["node", "--env-file=.env", "dist/app.js"]
+CMD ["node", "dist/app.js"]
