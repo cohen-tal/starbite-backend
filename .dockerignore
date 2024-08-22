@@ -3,3 +3,4 @@ dist
 nodemon.json
 .gitignore
 *.md
+.env
